@@ -65,9 +65,9 @@ def status():
 
 @app.post("/api/scrape")
 def scrape_now():
+    if os.environ.get("DEMO") == "1":
+        return jsonify(started=False, error="Demo mode: checking Carzone is switched off"), 403
     sid = (request.json or {}).get("search_id") if request.is_json else None
-    started = scraper.start_background(sid)
-    return jsonify(started=started, state=scraper.state)
 
 
 @app.get("/api/searches")
