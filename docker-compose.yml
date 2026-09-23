@@ -1,0 +1,18 @@
+services:
+  carwatch:
+    build: .
+    container_name: carwatch
+    restart: unless-stopped
+    init: true          # cleans up Chromium processes
+    shm_size: "1gb"     # Chromium needs more shared memory than Docker's default
+    ports:
+      - "8080:8080"     # change the left number if 8080 is taken on your NAS
+    volumes:
+      - ./data:/data    # database, debug screenshots
+    environment:
+      - TZ=Europe/Dublin
+      - DEMO=1                    # 1 = fake ads to try the app. Set to 0 for real Carzone data.
+      - SCRAPE_INTERVAL_HOURS=6   # how often to check Carzone
+      - MAX_PAGES=5               # result pages per search per check
+      - PAGE_PARAM=page           # Carzone's page-number parameter in the URL
+      - APP_PASSWORD=             # set one if the app is reachable from outside your home

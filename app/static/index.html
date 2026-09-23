@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CarWatch</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --tarmac: #2b3136;
+  --concrete: #e4e7e9;
+  --paper: #fbfbfa;
+  --line: #d3d8db;
+  --muted: #6b747a;
+  --sticker: #f4ce3b;
+  --save: #2f7d5b;
+  --hide: #b9483a;
+  --shadow: 0 1px 2px rgba(43,49,54,.12), 0 8px 24px rgba(43,49,54,.10);
+  --body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --cond: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tarmac: #e6e9eb; --concrete: #1c2024; --paper: #262b30; --line: #3a4147; --muted: #9aa3a9;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  }
+}
+*, *::before, *::after { box-sizing: inherit; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--concrete); color: var(--tarmac);
+  font: 16px/1.45 var(--body);
+  display: flex; flex-direction: column;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 3px solid var(--sticker); outline-offset: 2px; }
+a { color: inherit; }
+
+header {
+  display: flex; align-items: baseline; gap: .75rem;
+  padding: .9rem 1rem .4rem; max-width: 720px; width: 100%; margin: 0 auto;
+}
+header h1 { font: 700 1.5rem/1 var(--cond); margin: 0; letter-spacing: .01em; }
+#run-status { font-size: .85rem; color: var(--muted); margin-left: auto; text-align: right; }
+
+main { flex: 1; overflow-y: auto; padding: 0 1rem 6rem; }
+.wrap { max-width: 720px; margin: 0 auto; }
+
+/* search chips */
+.chips { display: flex; gap: .4rem; overflow-x: auto; padding: .35rem 0 .8rem; scrollbar-width: none; }
+.chip {
+  flex: none; border: 1px solid var(--line); background: var(--paper); border-radius: 999px;
+  padding: .3rem .8rem; font-size: .9rem; white-space: nowrap;
+}
+.chip[aria-pressed="true"] { background: var(--tarmac); color: var(--concrete); border-color: var(--tarmac); }
+
+/* deck */
+.deck { position: relative; max-width: 440px; margin: 0 auto; min-height: 560px; }
+.card {
+  position: absolute; inset: 0 0 auto 0; background: var(--paper); border-radius: 14px;
+  box-shadow: var(--shadow); overflow: hidden; touch-action: pan-y; user-select: none;
+  transform-origin: 50% 120%;
+}
+.card.under { transform: scale(.96) translateY(10px); filter: brightness(.97); pointer-events: none; }
+.card.fly { transition: transform .35s ease-in, opacity .35s ease-in; }
+.card.back { transition: transform .25s ease-out; }
+.photo { position: relative; aspect-ratio: 4 / 3; background: var(--line); }
+.photo img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.photo .nophoto { display: grid; place-items: center; height: 100%; color: var(--muted); }
+
+/* the windscreen price sticker */
+.sticker {
+  position: absolute; left: 14px; bottom: -18px; transform: rotate(-3deg);
+  background: var(--sticker); color: #2b3136; padding: .35rem .8rem .45rem;
+  border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,.25);
+  font-family: var(--cond); line-height: 1;
+}
+.sticker b { font-size: 2.1rem; font-weight: 700; display: block; }
+.sticker s { font-size: 1rem; font-weight: 600; opacity: .7; }
+.sticker small { font-size: .95rem; font-weight: 600; display: block; margin-top: .2rem; }
+
+.stamp {
+  position: absolute; top: 18px; padding: .2rem .7rem; border: 3px solid; border-radius: 6px;
+  font: 700 1.6rem/1 var(--cond); opacity: 0; background: rgba(255,255,255,.85);
+}
+.stamp.save { left: 18px; color: var(--save); transform: rotate(-10deg); }
+.stamp.hide { right: 18px; color: var(--hide); transform: rotate(10deg); }
+
+.body { padding: 1.7rem 1.1rem 1rem; }
+.body h2 { font: 700 1.45rem/1.15 var(--cond); margin: 0 0 .15rem; }
+.variant { color: var(--muted); margin: 0 0 .7rem; font-size: .95rem; }
+.specs { margin: 0; }
+.row {
+  display: grid; grid-template-columns: 7.5rem 1fr 2.4rem; align-items: center;
+  border-top: 1px solid var(--line); min-height: 2.35rem;
+}
+.row dt { color: var(--muted); font-size: .92rem; }
+.row dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.thumbdown {
+  border: 0; background: none; width: 2.2rem; height: 2.2rem; border-radius: 50%;
+  display: grid; place-items: center; color: var(--muted);
+}
+.thumbdown:hover { background: var(--concrete); color: var(--hide); }
+.thumbdown svg { width: 18px; height: 18px; }
+.value { font-size: .92rem; margin: .8rem 0 0; }
+.value.good { color: var(--save); }
+.value.high { color: var(--hide); }
+.open-ad {
+  display: flex; justify-content: center; gap: .4rem; margin-top: .9rem; padding: .65rem;
+  border: 1px solid var(--line); border-radius: 8px; text-decoration: none; font-weight: 600;
+}
+.open-ad:hover { background: var(--concrete); }
+
+.actions {
+  display: flex; justify-content: center; gap: 1.2rem; margin: 1.1rem auto 0; max-width: 440px;
+  position: sticky; bottom: .6rem; z-index: 5; pointer-events: none;
+}
+.actions .round { pointer-events: auto; }
+.round {
+  width: 3.6rem; height: 3.6rem; border-radius: 50%; border: 0; background: var(--paper);
+  box-shadow: var(--shadow); display: grid; place-items: center;
+}
+.round svg { width: 26px; height: 26px; }
+.round.hide { color: var(--hide); }
+.round.save { color: var(--save); }
+.round.undo { width: 2.8rem; height: 2.8rem; align-self: center; color: var(--muted); }
+.round.undo svg { width: 20px; height: 20px; }
+.round:disabled { color: var(--line); cursor: default; }
+.remaining { text-align: center; color: var(--muted); font-size: .88rem; margin-top: .7rem; }
+
+.empty { text-align: center; padding: 3rem 1rem; max-width: 30rem; margin: 0 auto; }
+.empty h2 { font: 700 1.4rem var(--cond); margin: 0 0 .4rem; }
+.empty p { color: var(--muted); margin: 0 0 1rem; }
+
+/* lists */
+.list { display: grid; gap: .6rem; }
+.item {
+  display: grid; grid-template-columns: 104px 1fr; gap: .8rem; background: var(--paper);
+  border-radius: 10px; overflow: hidden; box-shadow: var(--shadow);
+}
+.item img, .item .nophoto { width: 104px; height: 100%; min-height: 96px; object-fit: cover; background: var(--line); }
+.item .info { padding: .55rem .7rem .6rem 0; min-width: 0; }
+.item h3 { font: 700 1.1rem/1.15 var(--cond); margin: 0; }
+.item .meta { font-size: .88rem; color: var(--muted); margin: .1rem 0 .4rem; }
+.item .price { font: 700 1.15rem var(--cond); }
+.tag { display: inline-block; font-size: .78rem; padding: 0 .4rem; border-radius: 4px; background: var(--concrete); margin-left: .3rem; }
+.tag.gone { background: var(--hide); color: #fff; }
+.tag.drop { background: var(--sticker); color: #2b3136; }
+.btns { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
+.btn {
+  border: 1px solid var(--line); background: none; border-radius: 6px; padding: .25rem .6rem;
+  font-size: .88rem; text-decoration: none;
+}
+.btn.primary { background: var(--tarmac); color: var(--concrete); border-color: var(--tarmac); }
+.btn.danger { color: var(--hide); }
+.btn:hover { border-color: var(--tarmac); }
+
+/* settings */
+section.panel { background: var(--paper); border-radius: 12px; padding: 1rem 1.1rem; box-shadow: var(--shadow); margin-bottom: 1rem; }
+section.panel h2 { font: 700 1.3rem var(--cond); margin: 0 0 .3rem; }
+.hint { color: var(--muted); font-size: .9rem; margin: 0 0 .8rem; max-width: 60ch; }
+.search { border-top: 1px solid var(--line); padding: .8rem 0; }
+.search:first-of-type { border-top: 0; }
+.search-head { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.search-head strong { font-size: 1.05rem; }
+.search .sub { font-size: .85rem; color: var(--muted); }
+.search .err { font-size: .85rem; color: var(--hide); }
+form.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .6rem; margin-top: .6rem; }
+form.grid label { display: grid; gap: .15rem; font-size: .85rem; color: var(--muted); }
+form.grid label.wide { grid-column: 1 / -1; }
+input[type=text], input[type=number], input[type=url] {
+  font: inherit; color: var(--tarmac); background: var(--concrete); border: 1px solid var(--line);
+  border-radius: 6px; padding: .4rem .5rem; width: 100%;
+}
+form.grid .formbtns { grid-column: 1 / -1; display: flex; gap: .5rem; }
+.excl { display: flex; flex-wrap: wrap; gap: .4rem; }
+.excl span { background: var(--concrete); border-radius: 999px; padding: .2rem .3rem .2rem .7rem; font-size: .9rem; display: inline-flex; align-items: center; gap: .2rem; }
+.excl button { border: 0; background: none; width: 1.6rem; height: 1.6rem; border-radius: 50%; }
+.excl button:hover { background: var(--line); }
+pre.debug { font-size: .75rem; overflow-x: auto; background: var(--concrete); padding: .6rem; border-radius: 6px; max-height: 320px; }
+.debug img { max-width: 100%; border-radius: 6px; border: 1px solid var(--line); }
+
+/* bottom nav */
+nav {
+  position: fixed; left: 0; right: 0; bottom: 0; background: var(--paper); border-top: 1px solid var(--line);
+  display: flex; justify-content: center; padding-bottom: env(safe-area-inset-bottom, 0px); z-index: 10;
+}
+nav button {
+  flex: 1; max-width: 180px; border: 0; background: none; padding: .55rem 0 .6rem;
+  display: grid; justify-items: center; gap: .1rem; font-size: .8rem; color: var(--muted);
+}
+nav button svg { width: 22px; height: 22px; }
+nav button[aria-current="page"] { color: var(--tarmac); font-weight: 600; }
+nav .count { font-size: .72rem; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: var(--tarmac); color: var(--concrete); padding: .55rem .6rem .55rem 1rem; border-radius: 8px;
+  display: flex; gap: .8rem; align-items: center; z-index: 20; max-width: calc(100% - 2rem);
+}
+.toast button { background: none; border: 1px solid currentColor; border-radius: 6px; padding: .15rem .6rem; }
+@media (prefers-reduced-motion: reduce) { .card.fly, .card.back { transition: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>CarWatch</h1>
+  <div id="run-status" aria-live="polite"></div>
+</header>
+<main><div class="wrap" id="view"></div></main>
+
+<nav aria-label="Lists">
+  <button data-tab="market" aria-current="page">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+    <span>Market <span class="count" id="c-market"></span></span></button>
+  <button data-tab="liked">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>
+    <span>Saved <span class="count" id="c-liked"></span></span></button>
+  <button data-tab="disliked">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+    <span>Hidden <span class="count" id="c-disliked"></span></span></button>
+  <button data-tab="settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="6"/><path d="M15 15l5 5"/></svg>
+    <span>Searches</span></button>
+</nav>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const eur = n => n == null ? "" : "€" + Number(n).toLocaleString("en-IE");
+const km = n => n == null ? "" : Number(n).toLocaleString("en-IE") + " km";
+const ago = iso => {
+  if (!iso) return "";
+  const d = (Date.now() - new Date(iso)) / 36e5;
+  return d < 1 ? "just now" : d < 24 ? `${Math.round(d)} h ago` : `${Math.round(d / 24)} days ago`;
+};
+const ICON_DOWN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H6.7a2 2 0 0 0-2 1.7l-1.4 9A2 2 0 0 0 5.3 15H10zM17 2h2.7A2.3 2.3 0 0 1 22 4v7a2.3 2.3 0 0 1-2.3 2H17"/></svg>`;
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+const S = { tab: "market", ads: [], searches: [], searchFilter: null, history: [], status: null };
+
+/* ---------- toast ---------- */
+let toastTimer;
+function toast(msg, undoFn) {
+  document.querySelector(".toast")?.remove();
+  const t = document.createElement("div");
+  t.className = "toast"; t.setAttribute("role", "status");
+  t.innerHTML = `<span>${esc(msg)}</span>${undoFn ? "<button>Undo</button>" : ""}`;
+  if (undoFn) t.querySelector("button").onclick = () => { t.remove(); undoFn(); };
+  document.body.append(t);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 5000);
+}
+
+/* ---------- status ---------- */
+async function refreshStatus() {
+  try {
+    S.status = await api("/api/status");
+    for (const k of ["market", "liked", "disliked"]) $("#c-" + k).textContent = S.status.counts[k] || "";
+    const sc = S.status.scraper, lr = S.status.last_run;
+    $("#run-status").textContent = S.status.demo ? "Demo data"
+      : sc.running ? `Checking Carzone… ${sc.progress}`
+      : lr?.finished ? `Checked ${ago(lr.finished)}` : "Not checked yet";
+  } catch (e) { $("#run-status").textContent = e.message; }
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => go(b.dataset.tab));
+async function go(tab) {
+  S.tab = tab;
+  document.querySelectorAll("nav button").forEach(b =>
+    b.dataset.tab === tab ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+  if (tab === "settings") return renderSettings();
+  const qs = new URLSearchParams({ list: tab });
+  if (tab === "market" && S.searchFilter) qs.set("search_id", S.searchFilter);
+  [S.ads, S.searches] = await Promise.all([api("/api/ads?" + qs), api("/api/searches")]);
+  tab === "market" ? renderDeck() : renderList();
+  refreshStatus();
+}
+
+/* ---------- market deck ---------- */
+function specRows(ad) {
+  const rows = [
+    ["Make", ad.make, "make"], ["Model", ad.model, "model"], ["Version", ad.variant, "variant"],
+    ["Year", ad.year], ["Mileage", km(ad.mileage_km)], ["Fuel", ad.fuel, "fuel"], ["Body", ad.body, "body"],
+    ["Engine", ad.engine_l ? ad.engine_l.toFixed(1) + " L" : ""], ["Gearbox", ad.transmission, "transmission"],
+    ["Colour", ad.colour], ["Location", ad.county, "county"], ["Seller", ad.seller, "seller"],
+    ["Search", (ad.searches || []).join(", ")], ["First seen", ago(ad.first_seen)],
+  ];
+  return rows.filter(r => r[1]).map(([label, val, field]) => `
+    <div class="row"><dt>${label}</dt><dd>${esc(val)}</dd>${field
+      ? `<button class="thumbdown" data-field="${field}" data-value="${esc(val)}" aria-label="Never show ${esc(val)}" title="Never show ${esc(val)}">${ICON_DOWN}</button>`
+      : "<span></span>"}</div>`).join("");
+}
+
+function priceBits(ad) {
+  const h = ad.price_history || [];
+  const first = h.length ? h[0][1] : null;
+  const dropped = first && ad.price && ad.price < first;
+  return { dropped, first };
+}
+
+function valueLine(ad) {
+  if (!ad.comp_median || !ad.price) return "";
+  const diff = ad.price - ad.comp_median;
+  const pct = Math.round(Math.abs(diff) / ad.comp_median * 100);
+  const cls = diff < 0 ? "good" : diff > 0 ? "high" : "";
+  const txt = Math.abs(diff) < 250 ? "about the same as"
+    : `${eur(Math.abs(diff))} (${pct}%) ${diff < 0 ? "below" : "above"}`;
+  return `<p class="value ${cls}">${txt} the median of ${ad.comp_count} similar ${esc(ad.model)}s (±1 year) seen so far</p>`;
+}
+
+function cardHTML(ad) {
+  const { dropped, first } = priceBits(ad);
+  return `
+    <div class="photo">
+      ${ad.image ? `<img src="${esc(ad.image)}" alt="" referrerpolicy="no-referrer" loading="eager" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'nophoto',textContent:'No photo'}))">` : `<div class="nophoto">No photo</div>`}
+      <div class="stamp save">SAVE</div><div class="stamp hide">HIDE</div>
+      <div class="sticker">${dropped ? `<s>${eur(first)}</s>` : ""}<b>${ad.price ? eur(ad.price) : "POA"}</b>${ad.year ? `<small>${ad.year}${ad.mileage_km != null ? " / " + km(ad.mileage_km) : ""}</small>` : ""}</div>
+    </div>
+    <div class="body">
+      <h2>${esc([ad.make, ad.model].filter(Boolean).join(" ") || ad.title)}</h2>
+      ${ad.title && ad.title.trim() !== [ad.year, ad.make, ad.model].filter(Boolean).join(" ")
+        ? `<p class="variant">${esc(ad.title)}</p>` : `<div style="height:.55rem"></div>`}
+      <dl class="specs">${specRows(ad)}</dl>
+      ${valueLine(ad)}
+      <a class="open-ad" href="${esc(ad.url)}" target="_blank" rel="noopener">Open full ad on Carzone ↗</a>
+    </div>`;
+}
+
+function renderDeck() {
+  const chips = `<div class="chips" role="group" aria-label="Filter by search">
+    <button class="chip" aria-pressed="${!S.searchFilter}" data-sid="">All searches</button>
+    ${S.searches.filter(s => s.enabled).map(s => `<button class="chip" aria-pressed="${S.searchFilter === s.id}" data-sid="${s.id}">${esc(s.name)}</button>`).join("")}
+  </div>`;
+  if (!S.ads.length) {
+    const noSearches = !S.searches.length;
+    $("#view").innerHTML = chips + `<div class="empty">
+      <h2>${noSearches ? "Add your first search" : "You're all caught up"}</h2>
+      <p>${noSearches ? "Build a search on carzone.ie, copy its address, and paste it under Searches." : "New ads appear here after the next check. You can also check now."}</p>
+      ${noSearches ? `<button class="btn primary" onclick="go('settings')">Add a search</button>` : `<button class="btn primary" id="scrape-now">Check Carzone now</button>`}
+      ${S.history.length ? ` <button class="btn" id="undo-empty">Undo last swipe</button>` : ""}</div>`;
+    bindChips();
+    $("#scrape-now")?.addEventListener("click", scrapeNow);
+    $("#undo-empty")?.addEventListener("click", undo);
+    return;
+  }
+  const top = S.ads[0], next = S.ads[1];
+  $("#view").innerHTML = chips + `
+    <div class="deck" id="deck">
+      ${next ? `<article class="card under" aria-hidden="true">${cardHTML(next)}</article>` : ""}
+      <article class="card" id="top" aria-label="${esc(top.title)}">${cardHTML(top)}</article>
+    </div>
+    <div class="actions" id="actions">
+      <button class="round hide" id="btn-hide" aria-label="Hide this ad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <button class="round undo" id="btn-undo" aria-label="Undo last swipe" ${S.history.length ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+      <button class="round save" id="btn-save" aria-label="Save to favourites"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-5-8-11.2A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 2.8C20 16 12 21 12 21z"/></svg></button>
+    </div>
+    <p class="remaining">${S.ads.length} ad${S.ads.length === 1 ? "" : "s"} to review · swipe or use ← →</p>`;
+  bindChips();
+  const card = $("#top");
+  // size the deck to the tallest visible card
+  const fit = () => { $("#deck").style.minHeight = Math.max(...[...document.querySelectorAll(".card")].map(c => c.offsetHeight)) + 16 + "px"; };
+  fit(); card.querySelectorAll("img").forEach(i => i.addEventListener("load", fit));
+  $("#btn-hide").onclick = () => fling(-1);
+  $("#btn-save").onclick = () => fling(1);
+  $("#btn-undo").onclick = undo;
+  card.querySelectorAll(".thumbdown").forEach(b => b.onclick = e => { e.stopPropagation(); exclude(b.dataset.field, b.dataset.value); });
+  enableSwipe(card);
+}
+
+function bindChips() {
+  document.querySelectorAll(".chip").forEach(c => c.onclick = () => {
+    S.searchFilter = c.dataset.sid ? Number(c.dataset.sid) : null; go("market");
+  });
+}
+
+function enableSwipe(card) {
+  let startX = 0, startY = 0, dx = 0, dragging = false, id = null;
+  const stamps = { save: $(".stamp.save", card), hide: $(".stamp.hide", card) };
+  card.addEventListener("pointerdown", e => {
+    if (e.target.closest("button, a")) return;
+    dragging = true; id = e.pointerId; startX = e.clientX; startY = e.clientY; dx = 0;
+    card.classList.remove("back");
+  });
+  card.addEventListener("pointermove", e => {
+    if (!dragging || e.pointerId !== id) return;
+    dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) < 8 && Math.abs(dy) > 10) { dragging = false; return; } // vertical scroll
+    if (Math.abs(dx) > 8) card.setPointerCapture(id);
+    card.style.transform = `translateX(${dx}px) rotate(${dx / 18}deg)`;
+    stamps.save.style.opacity = Math.max(0, Math.min(1, dx / 110));
+    stamps.hide.style.opacity = Math.max(0, Math.min(1, -dx / 110));
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (Math.abs(dx) > 110) return fling(Math.sign(dx));
+    card.classList.add("back"); card.style.transform = "";
+    stamps.save.style.opacity = stamps.hide.style.opacity = 0;
+  };
+  card.addEventListener("pointerup", end);
+  card.addEventListener("pointercancel", end);
+}
+
+let flinging = false;
+async function fling(dir) {
+  const card = $("#top"); if (!card || flinging) return;
+  flinging = true;
+  const ad = S.ads[0];
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  $(dir > 0 ? ".stamp.save" : ".stamp.hide", card).style.opacity = 1;
+  card.classList.add("fly");
+  card.style.transform = `translateX(${dir * 140}vw) rotate(${dir * 28}deg)`;
+  const status = dir > 0 ? "liked" : "disliked";
+  try { await api(`/api/ads/${encodeURIComponent(ad.id)}/status`, { method: "POST", body: { status } }); }
+  catch (e) { toast(e.message); flinging = false; return renderDeck(); }
+  S.history.push(ad);
+  await new Promise(r => setTimeout(r, reduce ? 0 : 280));
+  S.ads.shift(); flinging = false;
+  renderDeck(); refreshStatus();
+}
+
+async function undo() {
+  const ad = S.history.pop(); if (!ad) return;
+  await api(`/api/ads/${encodeURIComponent(ad.id)}/status`, { method: "POST", body: { status: "new" } });
+  S.ads.unshift(ad); renderDeck(); refreshStatus();
+}
+
+async function exclude(field, value) {
+  await api("/api/exclusions", { method: "POST", body: { field, value } });
+  const excl = await api("/api/exclusions");
+  const e = excl.find(x => x.field === field && x.value.toLowerCase() === value.toLowerCase());
+  toast(`No more ${value}`, async () => { if (e) await api(`/api/exclusions/${e.id}`, { method: "DELETE" }); go("market"); });
+  go("market");
+}
+
+async function scrapeNow() {
+  const r = await api("/api/scrape", { method: "POST", body: {} });
+  toast(r.started ? "Checking Carzone. New ads will appear when it's done." : "A check is already running.");
+  pollUntilDone();
+}
+function pollUntilDone() {
+  const t = setInterval(async () => {
+    await refreshStatus();
+    if (!S.status?.scraper.running) { clearInterval(t); if (S.tab !== "settings") go(S.tab); else renderSettings(); }
+  }, 4000);
+}
+
+document.addEventListener("keydown", e => {
+  if (S.tab !== "market" || e.target.closest("input")) return;
+  if (e.key === "ArrowRight") fling(1);
+  if (e.key === "ArrowLeft") fling(-1);
+  if (e.key.toLowerCase() === "z") undo();
+});
+
+/* ---------- saved / hidden lists ---------- */
+function renderList() {
+  const liked = S.tab === "liked";
+  if (!S.ads.length) {
+    $("#view").innerHTML = `<div class="empty"><h2>${liked ? "No saved ads yet" : "Nothing hidden"}</h2>
+      <p>${liked ? "Swipe right on an ad in Market to keep it here." : "Ads you swipe left land here, so you can bring them back."}</p>
+      <button class="btn primary" onclick="go('market')">Go to Market</button></div>`;
+    return;
+  }
+  $("#view").innerHTML = `<div class="list">${S.ads.map(ad => {
+    const { dropped, first } = priceBits(ad);
+    return `<article class="item">
+      ${ad.image ? `<img src="${esc(ad.image)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : `<div class="nophoto"></div>`}
+      <div class="info">
+        <h3>${esc([ad.year, ad.make, ad.model].filter(Boolean).join(" "))}</h3>
+        <div class="meta">${esc([km(ad.mileage_km), ad.fuel, ad.engine_l && ad.engine_l.toFixed(1) + " L", ad.county].filter(Boolean).join(", "))}</div>
+        <span class="price">${ad.price ? eur(ad.price) : "POA"}</span>
+        ${dropped ? `<span class="tag drop">was ${eur(first)}</span>` : ""}
+        ${ad.active ? "" : `<span class="tag gone">No longer listed</span>`}
+        <div class="btns">
+          <a class="btn primary" href="${esc(ad.url)}" target="_blank" rel="noopener">Open ad ↗</a>
+          ${liked
+            ? `<button class="btn" data-id="${esc(ad.id)}" data-to="new">Back to market</button><button class="btn danger" data-id="${esc(ad.id)}" data-to="disliked">Hide</button>`
+            : `<button class="btn" data-id="${esc(ad.id)}" data-to="new">Restore to market</button><button class="btn" data-id="${esc(ad.id)}" data-to="liked">Save</button>`}
+        </div>
+      </div></article>`;
+  }).join("")}</div>`;
+  document.querySelectorAll(".btns button").forEach(b => b.onclick = async () => {
+    await api(`/api/ads/${encodeURIComponent(b.dataset.id)}/status`, { method: "POST", body: { status: b.dataset.to } });
+    toast(b.dataset.to === "new" ? "Moved back to Market" : b.dataset.to === "liked" ? "Saved" : "Hidden");
+    go(S.tab);
+  });
+}
+
+/* ---------- searches & exclusions ---------- */
+const FIELDS = [
+  ["min_year", "Year from", "number"], ["max_year", "Year to", "number"],
+  ["max_km", "Max km", "number"], ["min_price", "Min price €", "number"], ["max_price", "Max price €", "number"],
+  ["min_engine", "Engine from (L)", "number"], ["max_engine", "Engine to (L)", "number"],
+  ["fuel", "Fuel contains", "text"], ["body", "Body contains", "text"],
+];
+function searchForm(s = {}) {
+  return `<form class="grid" data-id="${s.id || ""}">
+    <label class="wide">Name<input type="text" name="name" required value="${esc(s.name)}" placeholder="Hybrid estate under 200,000 km"></label>
+    <label class="wide">Carzone search address<input type="url" name="url" required value="${esc(s.url)}" placeholder="https://www.carzone.ie/used-cars?..."></label>
+    ${FIELDS.map(([k, l, t]) => `<label>${l}<input type="${t}" name="${k}" ${t === "number" ? 'step="any"' : ""} value="${esc(s[k])}"></label>`).join("")}
+    <div class="formbtns"><button class="btn primary" type="submit">${s.id ? "Save changes" : "Add search"}</button>
+    ${s.id ? `<button class="btn" type="button" data-cancel>Cancel</button>` : ""}</div>
+  </form>`;
+}
+
+async function renderSettings() {
+  const [searches, excl] = await Promise.all([api("/api/searches"), api("/api/exclusions")]);
+  await refreshStatus();
+  const st = S.status;
+  $("#view").innerHTML = `
+    <section class="panel">
+      <h2>Searches</h2>
+      <p class="hint">Set up each search on carzone.ie with its own filters, then paste the address here. The extra fields below narrow results further, for things Carzone can't filter on (like an exact engine size). Several fuels or bodies: separate with commas.</p>
+      ${searches.map(s => `<div class="search" data-id="${s.id}">
+        <div class="search-head"><strong>${esc(s.name)}</strong>
+          <span class="sub">${s.enabled ? "" : "Paused. "}${s.last_run ? `Last check ${ago(s.last_run)}: ${s.last_count ?? 0} ads` : "Not checked yet"}</span></div>
+        ${s.last_error ? `<div class="err">${esc(s.last_error)}</div>` : ""}
+        <div class="sub">${esc(FIELDS.filter(([k]) => s[k] != null && s[k] !== "").map(([k, l]) => `${l}: ${s[k]}`).join(", ") || "No extra refinements")}</div>
+        <div class="btns">
+          <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Open on Carzone ↗</a>
+          <button class="btn" data-act="edit">Edit</button>
+          <button class="btn" data-act="toggle">${s.enabled ? "Pause" : "Resume"}</button>
+          <button class="btn" data-act="run">Check now</button>
+          <button class="btn danger" data-act="delete">Delete</button>
+        </div>
+        <div class="editor"></div>
+      </div>`).join("")}
+      <h2 style="margin-top:1rem">New search</h2>
+      ${searchForm()}
+    </section>
+
+    <section class="panel">
+      <h2>Never show</h2>
+      <p class="hint">Tap the thumbs-down beside a detail on any card to add it here.</p>
+      <div class="excl">${excl.length ? excl.map(e => `<span>${esc(e.field)}: ${esc(e.value)}<button data-eid="${e.id}" aria-label="Show ${esc(e.value)} again">✕</button></span>`).join("") : `<span style="padding-right:.7rem">Nothing excluded yet</span>`}</div>
+    </section>
+
+    <section class="panel">
+      <h2>Checking Carzone</h2>
+      <p class="hint">${st.demo ? "Demo mode is on, so automatic checks are off. Set DEMO=0 in docker-compose.yml to use real Carzone data." : `Checks every ${st.interval_hours} hours. ${st.scraper.running ? "Checking now: " + esc(st.scraper.progress) : st.last_run?.finished ? `Last check ${ago(st.last_run.finished)}: ${st.last_run.found ?? 0} ads, ${st.last_run.new_ads ?? 0} new.` : ""}`}</p>
+      ${st.last_run?.error ? `<p class="hint" style="color:var(--hide)">${esc(st.last_run.error)}</p>` : ""}
+      <div class="btns"><button class="btn primary" id="scrape-all" ${st.scraper.running ? "disabled" : ""}>Check all searches now</button>
+      <button class="btn" id="show-debug">Show what the scraper saw</button></div>
+      <div id="debug" class="debug"></div>
+    </section>`;
+
+  const readForm = f => Object.fromEntries([...new FormData(f)].map(([k, v]) => [k, v === "" ? null : v]));
+  document.querySelectorAll("form.grid").forEach(bindForm);
+  function bindForm(f) {
+    f.onsubmit = async e => {
+      e.preventDefault();
+      try {
+        const body = readForm(f);
+        if (f.dataset.id) await api(`/api/searches/${f.dataset.id}`, { method: "PUT", body });
+        else await api("/api/searches", { method: "POST", body });
+        toast(f.dataset.id ? "Search updated" : "Search added. Use Check now to fetch its ads.");
+        renderSettings();
+      } catch (err) { toast(err.message); }
+    };
+    f.querySelector("[data-cancel]")?.addEventListener("click", () => renderSettings());
+  }
+  document.querySelectorAll(".search").forEach(el => {
+    const s = searches.find(x => x.id == el.dataset.id);
+    el.querySelectorAll("[data-act]").forEach(b => b.onclick = async () => {
+      const act = b.dataset.act;
+      if (act === "edit") { $(".editor", el).innerHTML = searchForm(s); bindForm($(".editor form", el)); }
+      if (act === "toggle") { await api(`/api/searches/${s.id}`, { method: "PUT", body: { enabled: !s.enabled } }); renderSettings(); }
+      if (act === "delete" && confirm(`Delete "${s.name}"? Its ads stay in Saved and Hidden.`)) { await api(`/api/searches/${s.id}`, { method: "DELETE" }); renderSettings(); }
+      if (act === "run") { const r = await api("/api/scrape", { method: "POST", body: { search_id: s.id } }); toast(r.started ? `Checking "${s.name}"` : "A check is already running."); pollUntilDone(); }
+    });
+  });
+  document.querySelectorAll("[data-eid]").forEach(b => b.onclick = async () => {
+    await api(`/api/exclusions/${b.dataset.eid}`, { method: "DELETE" }); renderSettings();
+  });
+  $("#scrape-all").onclick = scrapeNow;
+  $("#show-debug").onclick = async () => {
+    const d = await api("/api/debug");
+    $("#debug").innerHTML = d.length ? d.map(x => `<h3>${esc(x.url)}</h3>
+      <p class="hint">Page title: ${esc(x.title)}. Listings recognised: ${x.parsed_count}. JSON responses captured: ${x.json_responses.length}.</p>
+      <details><summary>Screenshot</summary><img src="/api/debug/${esc(x.name)}.png" alt="Screenshot of the Carzone page"></details>
+      <details><summary>Recognised listings</summary><pre class="debug">${esc(JSON.stringify(x.parsed_ads, null, 2))}</pre></details>
+      <details><summary>Captured JSON (for fixing the parser)</summary><pre class="debug">${esc(JSON.stringify(x.json_responses, null, 2))}</pre></details>`).join("")
+      : `<p class="hint">Nothing yet. Run a check first.</p>`;
+  };
+}
+go("market");
+setInterval(refreshStatus, 60000);
+</script>
+</body>
+</html>
