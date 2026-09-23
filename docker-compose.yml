@@ -1,12 +1,15 @@
 services:
   carwatch:
-    build: .
+    build:
+      context: .
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     container_name: carwatch
     restart: unless-stopped
     init: true          # cleans up Chromium processes
     shm_size: "1gb"     # Chromium needs more shared memory than Docker's default
     ports:
-      - "8080:8080"     # change the left number if 8080 is taken on your NAS
+      - "8080:8080"     # change the left number if 8080 is taken
     volumes:
       - ./data:/data    # database, debug screenshots
     environment:
