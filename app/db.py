@@ -1,3 +1,4 @@
+import re
 import json
 import os
 import sqlite3
@@ -10,7 +11,7 @@ _conn = None
 
 AD_FIELDS = ["url", "title", "make", "model", "variant", "year", "price", "mileage_km", "fuel", "body",
              "engine_l", "transmission", "colour", "county", "seller", "image"]
-EXCLUDABLE = ["make", "model", "variant", "fuel", "body", "transmission", "colour", "county", "seller"]
+EXCLUDABLE = ["make", "model", "variant", "fuel", "body", "engine_l", "transmission", "colour", "county", "seller"]
 SEARCH_FIELDS = ["name", "url", "enabled", "min_year", "max_year", "max_km", "min_price", "max_price",
                  "min_engine", "max_engine", "fuel", "body"]
 
@@ -165,10 +166,21 @@ def matches_search(ad, s):
     return True
 
 
+def _engine(v):
+    """'3.0 L', '3', 3.0 -> '3.0' so engine sizes compare reliably."""
+    m = re.search(r"\d+(?:\.\d+)?", str(v or ""))
+    return f"{float(m.group()):.1f}" if m else None
+
+
 def excluded(ad, exclusions):
     for e in exclusions:
         v = ad.get(e["field"])
-        if v and str(v).strip().lower() == e["value"].strip().lower():
+        if v in (None, ""):
+            continue
+        if e["field"] == "engine_l":
+            if _engine(v) == _engine(e["value"]):
+                return True
+        elif str(v).strip().lower() == e["value"].strip().lower():
             return True
     return False
 
@@ -237,6 +249,10 @@ def list_exclusions():
 def add_exclusion(field, value):
     if field not in EXCLUDABLE or not value:
         raise ValueError("Can't exclude on that field")
+    if field == "engine_l":
+        value = _engine(value)
+        if not value:
+            raise ValueError("Not an engine size")
     x("INSERT OR IGNORE INTO exclusions(field, value) VALUES (?,?)", (field, value.strip()))
 
 

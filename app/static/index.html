@@ -296,7 +296,7 @@ function specRows(ad) {
   const rows = [
     ["Make", ad.make, "make"], ["Model", ad.model, "model"], ["Version", ad.variant, "variant"],
     ["Year", ad.year], ["Mileage", km(ad.mileage_km)], ["Fuel", ad.fuel, "fuel"], ["Body", ad.body, "body"],
-    ["Engine", ad.engine_l ? ad.engine_l.toFixed(1) + " L" : ""], ["Gearbox", ad.transmission, "transmission"],
+    ["Engine", ad.engine_l ? ad.engine_l.toFixed(1) + " L" : "", "engine_l"], ["Gearbox", ad.transmission, "transmission"],
     ["Colour", ad.colour], ["Location", ad.county, "county"], ["Seller", ad.seller, "seller"],
     ["Search", (ad.searches || []).join(", ")], ["First seen", ago(ad.first_seen)],
   ];
@@ -503,6 +503,8 @@ function renderList() {
 }
 
 /* ---------- searches & exclusions ---------- */
+const FIELD_LABEL = { make: "Make", model: "Model", variant: "Version", fuel: "Fuel", body: "Body",
+  engine_l: "Engine", transmission: "Gearbox", colour: "Colour", county: "Location", seller: "Seller" };
 const FIELDS = [
   ["min_year", "Year from", "number"], ["max_year", "Year to", "number"],
   ["max_km", "Max km", "number"], ["min_price", "Min price €", "number"], ["max_price", "Max price €", "number"],
@@ -548,7 +550,7 @@ async function renderSettings() {
     <section class="panel">
       <h2>Never show</h2>
       <p class="hint">Tap the thumbs-down beside a detail on any card to add it here.</p>
-      <div class="excl">${excl.length ? excl.map(e => `<span>${esc(e.field)}: ${esc(e.value)}<button data-eid="${e.id}" aria-label="Show ${esc(e.value)} again">✕</button></span>`).join("") : `<span style="padding-right:.7rem">Nothing excluded yet</span>`}</div>
+      <div class="excl">${excl.length ? excl.map(e => `<span>${esc(FIELD_LABEL[e.field] || e.field)}: ${esc(e.field === "engine_l" ? e.value + " L" : e.value)}<button data-eid="${e.id}" aria-label="Show ${esc(e.value)} again">✕</button></span>`).join("") : `<span style="padding-right:.7rem">Nothing excluded yet</span>`}</div>
     </section>
 
     <section class="panel">
