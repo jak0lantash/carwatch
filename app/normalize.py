@@ -329,7 +329,8 @@ COUNTIES = ["Carlow", "Cavan", "Clare", "Cork", "Donegal", "Dublin", "Galway", "
 
 def _good_image(src):
     s = (src or "").lower()
-    return s.startswith("http") and not s.endswith(".svg") and "/resources-frontend/" not in s
+    return (s.startswith("http") and not s.endswith(".svg") and "/resources-frontend/" not in s
+            and "/partners/" not in s)
 
 
 def parse_card(card):

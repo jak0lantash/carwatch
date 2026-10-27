@@ -59,7 +59,7 @@ CARDS_JS = r"""
       if (!s.startsWith('http') && img.srcset) s = img.srcset.split(',').pop().trim().split(' ')[0];
       return s;
     };
-    const photo = s => s.startsWith('http') && !/\.svg(\?|$)/i.test(s) && !s.includes('/resources-frontend/');
+    const photo = s => s.startsWith('http') && !/\.svg(\?|$)/i.test(s) && !s.includes('/resources-frontend/') && !s.includes('/partners/');
     const src = [...el.querySelectorAll('img')].map(srcOf).find(photo) || '';
     out.push({ href, text: (el.innerText || '').slice(0, 1500), img: src });
   });
