@@ -321,8 +321,30 @@ def merge(a, b):
     return out
 
 
+COUNTIES = ["Carlow", "Cavan", "Clare", "Cork", "Donegal", "Dublin", "Galway", "Kerry", "Kildare",
+            "Kilkenny", "Laois", "Leitrim", "Limerick", "Longford", "Louth", "Mayo", "Meath", "Monaghan",
+            "Offaly", "Roscommon", "Sligo", "Tipperary", "Waterford", "Westmeath", "Wexford", "Wicklow",
+            "Antrim", "Armagh", "Down", "Fermanagh", "Derry", "Londonderry", "Tyrone"]
+
+
+def _good_image(src):
+    s = (src or "").lower()
+    return s.startswith("http") and not s.endswith(".svg") and "/resources-frontend/" not in s
+
+
 def parse_card(card):
-    """Fallback: a DOM card {href, text, img} -> ad dict."""
+    """Fallback: a DOM card {href, text, img} -> ad dict.
+
+    Carzone cards look like:
+        Audi A7 3.0 TDI SE EXECUTIVE ULTRA 218PS...     <- title
+        Central Locking, Electric Windows, ...          <- free-text description (ignored)
+        2016 • 155,000km • 3.0 Diesel                   <- spec line
+        Dealer                                          <- seller type
+        Dublin                                          <- county
+        €17,750
+    Only the spec line is trusted for fuel/engine, so words in the description
+    ("Electric Windows") can't be mistaken for specs.
+    """
     url = _abs_url(card.get("href"))
     ad_id = id_from_url(url)
     if not ad_id:
@@ -330,28 +352,53 @@ def parse_card(card):
     text = card.get("text") or ""
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     make, model = make_model_from_url(url)
+
+    spec_i = next((i for i, l in enumerate(lines) if "•" in l or "·" in l), None)
+    spec = lines[spec_i] if spec_i is not None else ""
+    parts = [p.strip() for p in re.split(r"[•·]", spec) if p.strip()]
+
+    year = km = eng = fuel = None
+    for p in parts:
+        if year is None and re.fullmatch(r"(19[89]\d|20[0-4]\d)", p):
+            year = int(p)
+        elif km is None and re.search(r"\d\s?(km|kms|mi|miles)\b", p, re.I):
+            m = re.search(r"([\d,]+)\s?(km|kms|mi|miles)\b", p, re.I)
+            km = _mileage_km(m.group(1), m.group(2))
+        else:
+            m = re.match(r"(\d\.\d)\s*(?:l|litre)?\s*(.*)$", p, re.I)
+            if m:
+                eng = float(m.group(1))
+                fuel = m.group(2).strip() or None
+            elif _match_word(p, FUELS):
+                fuel = p
+    if fuel:
+        fuel = " ".join(w if w.isupper() else w.capitalize() for w in fuel.split()).replace("Plug-in", "Plug-In")
+
+    seller = county = None
+    if spec_i is not None:
+        after = [l for l in lines[spec_i + 1:] if not l.startswith("€")][:3]
+        for l in after:
+            if seller is None and l.lower() in ("dealer", "private", "private seller", "trade"):
+                seller = l.title()
+            elif county is None and l.title() in COUNTIES:
+                county = l.title()
+
     price = None
     m = re.search(r"€\s?([\d,]{3,})", text)
     if m:
         price = to_int(m.group(1))
-    km = None
-    m = re.search(r"([\d,]{2,})\s?(km|kms|mi|miles)\b", text, re.I)
-    if m:
-        km = _mileage_km(m.group(1), m.group(2))
-    year = None
-    m = re.search(r"\b(20[0-4]\d|19[89]\d)\b", text)
-    if m:
-        year = int(m.group(1))
-    eng = None
-    m = re.search(r"\b(\d\.\d)\s?(l|litre|ltr)?\b", text, re.I)
-    if m:
-        eng = float(m.group(1))
-    trans = "Automatic" if re.search(r"\bauto(matic)?\b", text, re.I) else ("Manual" if re.search(r"\bmanual\b", text, re.I) else None)
-    title = next((l for l in lines if not l.startswith("€") and len(l) > 3), None)
+
+    def is_title(l):
+        return (not l.startswith("€") and not re.fullmatch(r"\d{1,3}", l)
+                and not l.lower().startswith("featured car from") and len(l) > 3)
+    title = next((l for l in lines[: spec_i if spec_i is not None else len(lines)] if is_title(l)), None)
+
+    trans = "Automatic" if re.search(r"\bauto(matic)?\b", spec + " " + (title or ""), re.I) else (
+        "Manual" if re.search(r"\bmanual\b", spec, re.I) else None)
     return {
         "id": ad_id, "url": url, "title": title, "make": make, "model": model, "variant": None,
         "year": year, "price": price, "mileage_km": km,
-        "fuel": _match_word(text, FUELS), "body": _match_word(text, BODIES),
-        "engine_l": eng, "transmission": trans, "colour": None, "county": None, "seller": None,
-        "image": card.get("img") if (card.get("img") or "").startswith("http") else None,
+        "fuel": fuel, "body": _match_word(spec, BODIES),
+        "engine_l": eng, "transmission": trans, "colour": None, "county": county, "seller": seller,
+        "image": card.get("img") if _good_image(card.get("img")) else None,
     }

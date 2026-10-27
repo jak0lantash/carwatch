@@ -54,9 +54,13 @@ CARDS_JS = r"""
     while (el.parentElement && el.parentElement !== document.body && hops < 10 && countAds(el.parentElement) <= 1) {
       el = el.parentElement; hops++;
     }
-    const img = el.querySelector('img');
-    let src = img ? (img.currentSrc || img.src || img.getAttribute('data-src') || '') : '';
-    if (!src.startsWith('http') && img && img.srcset) src = img.srcset.split(',').pop().trim().split(' ')[0];
+    const srcOf = img => {
+      let s = img.currentSrc || img.src || img.getAttribute('data-src') || '';
+      if (!s.startsWith('http') && img.srcset) s = img.srcset.split(',').pop().trim().split(' ')[0];
+      return s;
+    };
+    const photo = s => s.startsWith('http') && !/\.svg(\?|$)/i.test(s) && !s.includes('/resources-frontend/');
+    const src = [...el.querySelectorAll('img')].map(srcOf).find(photo) || '';
     out.push({ href, text: (el.innerText || '').slice(0, 1500), img: src });
   });
   return out;
