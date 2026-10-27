@@ -46,7 +46,8 @@ CARDS_JS = r"""
   const re = /\/fpa\/|\/used-cars\/[^?#]+\/\d{6,}/;
   document.querySelectorAll('a[href]').forEach(a => {
     const href = a.href;
-    if (!re.test(href) || seen.has(href)) return;
+    // #TargetedFeaturedDealer = dealer ad carousel of unrelated cars, not a search result
+    if (!re.test(href) || seen.has(href) || /#Targeted/i.test(href)) return;
     seen.add(href);
     // climb to the largest ancestor that still holds only this one listing = the card
     const countAds = n => new Set([...n.querySelectorAll('a[href]')].map(x => x.href).filter(h => re.test(h))).size;

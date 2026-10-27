@@ -144,6 +144,16 @@ def _alts(s):
     return [a.strip().lower() for a in (s or "").split(",") if a.strip()]
 
 
+def _slug(v):
+    return re.sub(r"[^a-z0-9]", "", str(v).lower())
+
+
+def _url_param(url, key):
+    from urllib.parse import urlparse, parse_qs
+    vals = parse_qs(urlparse(url or "").query).get(key)
+    return vals[0] if vals and "," not in vals[0] else None
+
+
 def matches_search(ad, s):
     """Local refinements on top of the Carzone URL. Unknown values pass."""
     def lo(v, m):
@@ -152,6 +162,11 @@ def matches_search(ad, s):
     def hi(v, m):
         return m is None or v is None or v <= m
 
+    # Make/model in the Carzone search URL must match (catches ads and carousels on the page).
+    for key, field in (("make", "make"), ("model", "model")):
+        want = _url_param(s["url"], key)
+        if want and ad[field] and _slug(want) != _slug(ad[field]):
+            return False
     if not (lo(ad["year"], s["min_year"]) and hi(ad["year"], s["max_year"])):
         return False
     if not hi(ad["mileage_km"], s["max_km"]):
