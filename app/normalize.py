@@ -384,10 +384,17 @@ def parse_card(card):
             elif county is None and l.title() in COUNTIES:
                 county = l.title()
 
+    # Price: the first "€..." line after the spec line. Earlier € amounts are in the
+    # dealer's description ("Finance from €107 per week"); later ones are monthly HP.
     price = None
-    m = re.search(r"€\s?([\d,]{3,})", text)
-    if m:
-        price = to_int(m.group(1))
+    after_spec = lines[spec_i + 1:] if spec_i is not None else lines
+    for l in after_spec:
+        m = re.fullmatch(r"€\s?([\d,]{3,})", l)
+        if m:
+            price = to_int(m.group(1))
+            break
+    if price is not None and not 500 <= price <= 2_000_000:
+        price = None
 
     def is_title(l):
         return (not l.startswith("€") and not re.fullmatch(r"\d{1,3}", l)
