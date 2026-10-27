@@ -5,6 +5,7 @@ import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 
+HIDE_POA = os.environ.get("HIDE_POA", "1") == "1"
 DB_PATH = os.environ.get("DB_PATH", "/data/carwatch.db")
 _lock = threading.RLock()
 _conn = None
@@ -204,6 +205,8 @@ def ads_for_list(which, search_id=None, stale_hours=72):
     for ad in rows:
         sids = [sid for sid in links.get(ad["id"], []) if sid in searches]
         if which == "market":
+            if ad["price"] is None and HIDE_POA:  # "price on application" ads
+                continue
             if excluded(ad, exclusions):
                 continue
             sids = [sid for sid in sids if searches[sid]["enabled"] and matches_search(ad, searches[sid])]
