@@ -30,7 +30,9 @@ def _carzone_check(ad):
         return {"gone": True, "price": None, "state": "expired"}
     if status != 200:
         raise RuntimeError(f"Carzone answered HTTP {status}")
-    m = re.search(r'class="fpa-price[^"]*"[^>]*>\s*€\s*([\d,]+)', html)
+    # The ad's own price: a meta tag (cXenseParse:inm-price) or the main price box's card-price.
+    m = (re.search(r'cXenseParse:inm-price"\s+content="(\d+)"', html)
+         or re.search(r'class="fpa-price[^"]*".{0,400}?data-cy="card-price"[^>]*>\s*€\s*([\d,]+)', html, re.S))
     price = int(m.group(1).replace(",", "")) if m else None
     if price is not None and not 500 <= price <= 2_000_000:
         price = None
