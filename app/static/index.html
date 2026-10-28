@@ -96,6 +96,9 @@ main { flex: 1; overflow-y: auto; padding: 0 1rem 6rem; }
 .body { padding: 1.7rem 1.1rem 1rem; }
 .body h2 { font: 700 1.45rem/1.15 var(--cond); margin: 0 0 .15rem; }
 .variant { color: var(--muted); margin: 0 0 .7rem; font-size: .95rem; }
+.site { display: inline-block; vertical-align: middle; margin-left: .4rem; font: 600 .72rem/1 var(--body);
+  padding: .25rem .45rem; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+.loading-more { text-align: center; color: var(--muted); font-size: .88rem; margin-top: .3rem; }
 .specs { margin: 0; }
 .row {
   display: grid; grid-template-columns: 7.5rem 1fr 2.4rem; align-items: center;
@@ -266,12 +269,19 @@ function toast(msg, undoFn) {
 }
 
 /* ---------- status ---------- */
+const site = ad => ad.source === "donedeal" ? "DoneDeal" : "Carzone";
+const isDD = url => /donedeal\.ie/.test(url || "");
+const hhmm = iso => new Date(iso).toLocaleTimeString("en-IE", { hour: "2-digit", minute: "2-digit" });
+
 async function refreshStatus() {
   try {
     S.status = await api("/api/status");
     for (const k of ["market", "liked", "disliked"]) $("#c-" + k).textContent = S.status.counts[k] || "";
     const sc = S.status.scraper, lr = S.status.last_run;
+    const pg = S.status.pager || {};
     $("#run-status").textContent = S.status.demo ? "Demo data"
+      : pg.doing ? `Loading DoneDeal… ${pg.doing}`
+      : pg.blocked_until ? `DoneDeal asked to slow down; next try ${hhmm(pg.blocked_until)}`
       : sc.running ? `Checking Carzone… ${sc.progress}`
       : lr?.finished ? `Checked ${ago(lr.finished)}` : "Not checked yet";
   } catch (e) { $("#run-status").textContent = e.message; }
@@ -288,8 +298,37 @@ async function go(tab) {
   if (tab === "market" && S.searchFilter) qs.set("search_id", S.searchFilter);
   [S.ads, S.searches] = await Promise.all([api("/api/ads?" + qs), api("/api/searches")]);
   tab === "market" ? renderDeck() : renderList();
-  refreshStatus();
+  await refreshStatus();
+  if (tab === "market") watchPager();
 }
+
+/* DoneDeal pages arrive in the background while you browse; add them to the end of the deck. */
+let pagerTimer = null;
+function watchPager() {
+  if (pagerTimer || !S.status?.pager_busy) return;
+  pagerTimer = setInterval(async () => {
+    await refreshStatus();
+    if (S.status?.pager_busy) return;
+    clearInterval(pagerTimer); pagerTimer = null;
+    if (S.tab === "market") await topUp(false);
+  }, 4000);
+  if (S.tab === "market" && !S.ads.length) renderDeck();
+}
+async function topUp(ask = true) {
+  const qs = new URLSearchParams({ list: "market" });
+  if (S.searchFilter) qs.set("search_id", S.searchFilter);
+  const fresh = await api("/api/ads?" + qs);   // also asks the server to fetch the next page if needed
+  const have = new Set([...S.ads, ...S.history].map(a => a.id));
+  const added = fresh.filter(a => !have.has(a.id));
+  if (added.length) {
+    const wasEmpty = !S.ads.length;
+    S.ads.push(...added);
+    if (wasEmpty) renderDeck();
+    else { const r = $(".remaining"); if (r) r.textContent = remainingText(); }
+  }
+  if (ask) { await refreshStatus(); watchPager(); }
+}
+const remainingText = () => `${S.ads.length} ad${S.ads.length === 1 ? "" : "s"} to review · swipe or use ← →`;
 
 /* ---------- market deck ---------- */
 function specRows(ad) {
@@ -332,12 +371,12 @@ function cardHTML(ad) {
       <div class="sticker">${dropped ? `<s>${eur(first)}</s>` : ""}<b>${ad.price ? eur(ad.price) : "POA"}</b>${ad.year ? `<small>${ad.year}${ad.mileage_km != null ? " / " + km(ad.mileage_km) : ""}</small>` : ""}</div>
     </div>
     <div class="body">
-      <h2>${esc([ad.make, ad.model].filter(Boolean).join(" ") || ad.title)}</h2>
+      <h2>${esc([ad.make, ad.model].filter(Boolean).join(" ") || ad.title)}<span class="site">${site(ad)}</span></h2>
       ${ad.title && ad.title.trim() !== [ad.year, ad.make, ad.model].filter(Boolean).join(" ")
         ? `<p class="variant">${esc(ad.title)}</p>` : `<div style="height:.55rem"></div>`}
       <dl class="specs">${specRows(ad)}</dl>
       ${valueLine(ad)}
-      <a class="open-ad" href="${esc(ad.url)}" target="_blank" rel="noopener">Open full ad on Carzone ↗</a>
+      <a class="open-ad" href="${esc(ad.url)}" target="_blank" rel="noopener">Open full ad on ${site(ad)} ↗</a>
     </div>`;
 }
 
@@ -348,10 +387,13 @@ function renderDeck() {
   </div>`;
   if (!S.ads.length) {
     const noSearches = !S.searches.length;
+    const loading = S.status?.pager_busy;
     $("#view").innerHTML = chips + `<div class="empty">
-      <h2>${noSearches ? "Add your first search" : "You're all caught up"}</h2>
-      <p>${noSearches ? "Build a search on carzone.ie, copy its address, and paste it under Searches." : "New ads appear here after the next check. You can also check now."}</p>
-      ${noSearches ? `<button class="btn primary" onclick="go('settings')">Add a search</button>` : `<button class="btn primary" id="scrape-now">Check Carzone now</button>`}
+      <h2>${noSearches ? "Add your first search" : loading ? "Loading more ads…" : "You're all caught up"}</h2>
+      <p>${noSearches ? "Build a search on carzone.ie or donedeal.ie, copy its address, and paste it under Searches."
+        : loading ? "Fetching the next page from DoneDeal. This takes a few seconds, sometimes up to half a minute."
+        : "New ads appear here after the next check. You can also check now."}</p>
+      ${noSearches ? `<button class="btn primary" onclick="go('settings')">Add a search</button>` : loading ? "" : `<button class="btn primary" id="scrape-now">Check for new ads</button>`}
       ${S.history.length ? ` <button class="btn" id="undo-empty">Undo last swipe</button>` : ""}</div>`;
     bindChips();
     $("#scrape-now")?.addEventListener("click", scrapeNow);
@@ -369,7 +411,7 @@ function renderDeck() {
       <button class="round undo" id="btn-undo" aria-label="Undo last swipe" ${S.history.length ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
       <button class="round save" id="btn-save" aria-label="Save to favourites"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-5-8-11.2A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 2.8C20 16 12 21 12 21z"/></svg></button>
     </div>
-    <p class="remaining">${S.ads.length} ad${S.ads.length === 1 ? "" : "s"} to review · swipe or use ← →</p>`;
+    <p class="remaining">${remainingText()}</p>`;
   bindChips();
   const card = $("#top");
   // size the deck to the tallest visible card
@@ -432,7 +474,8 @@ async function fling(dir) {
   S.history.push(ad);
   await new Promise(r => setTimeout(r, reduce ? 0 : 280));
   S.ads.shift(); flinging = false;
-  renderDeck(); refreshStatus();
+  renderDeck();
+  if (S.ads.length <= 6) topUp(); else refreshStatus();
 }
 
 async function undo() {
@@ -451,13 +494,13 @@ async function exclude(field, value) {
 
 async function scrapeNow() {
   const r = await api("/api/scrape", { method: "POST", body: {} });
-  toast(r.started ? "Checking Carzone. New ads will appear when it's done." : "A check is already running.");
+  toast(r.started ? "Checking for new ads. They'll appear when it's done." : "A check is already running.");
   pollUntilDone();
 }
 function pollUntilDone() {
   const t = setInterval(async () => {
     await refreshStatus();
-    if (!S.status?.scraper.running) { clearInterval(t); if (S.tab !== "settings") go(S.tab); else renderSettings(); }
+    if (!S.status?.scraper.running && !S.status?.pager_busy) { clearInterval(t); if (S.tab !== "settings") go(S.tab); else renderSettings(); }
   }, 4000);
 }
 
@@ -487,8 +530,9 @@ function renderList() {
         <span class="price">${ad.price ? eur(ad.price) : "POA"}</span>
         ${dropped ? `<span class="tag drop">was ${eur(first)}</span>` : ""}
         ${ad.active ? "" : `<span class="tag gone">No longer listed</span>`}
+        ${liked && ad.active && ad.checked_at ? `<span class="tag">Rechecked ${ago(ad.checked_at)}</span>` : ""}
         <div class="btns">
-          <a class="btn primary" href="${esc(ad.url)}" target="_blank" rel="noopener">Open ad ↗</a>
+          <a class="btn primary" href="${esc(ad.url)}" target="_blank" rel="noopener">Open on ${site(ad)} ↗</a>
           ${liked
             ? `<button class="btn" data-id="${esc(ad.id)}" data-to="new">Back to market</button><button class="btn danger" data-id="${esc(ad.id)}" data-to="disliked">Hide</button>`
             : `<button class="btn" data-id="${esc(ad.id)}" data-to="new">Restore to market</button><button class="btn" data-id="${esc(ad.id)}" data-to="liked">Save</button>`}
@@ -514,7 +558,7 @@ const FIELDS = [
 function searchForm(s = {}) {
   return `<form class="grid" data-id="${s.id || ""}">
     <label class="wide">Name<input type="text" name="name" required value="${esc(s.name)}" placeholder="Hybrid estate under 200,000 km"></label>
-    <label class="wide">Carzone search address<input type="url" name="url" required value="${esc(s.url)}" placeholder="https://www.carzone.ie/used-cars?..."></label>
+    <label class="wide">Carzone or DoneDeal search address<input type="url" name="url" required value="${esc(s.url)}" placeholder="https://www.carzone.ie/search?... or https://www.donedeal.ie/cars/..."></label>
     ${FIELDS.map(([k, l, t]) => `<label>${l}<input type="${t}" name="${k}" ${t === "number" ? 'step="any"' : ""} value="${esc(s[k])}"></label>`).join("")}
     <div class="formbtns"><button class="btn primary" type="submit">${s.id ? "Save changes" : "Add search"}</button>
     ${s.id ? `<button class="btn" type="button" data-cancel>Cancel</button>` : ""}</div>
@@ -528,14 +572,16 @@ async function renderSettings() {
   $("#view").innerHTML = `
     <section class="panel">
       <h2>Searches</h2>
-      <p class="hint">Set up each search on carzone.ie with its own filters, then paste the address here. The extra fields below narrow results further, for things Carzone can't filter on (like an exact engine size). Several fuels or bodies: separate with commas.</p>
+      <p class="hint">Set up each search on carzone.ie or donedeal.ie with its own filters, then paste the address here. The extra fields below narrow results further, for things the site can't filter on (like an exact engine size). Several fuels or bodies: separate with commas.</p>
       ${searches.map(s => `<div class="search" data-id="${s.id}">
         <div class="search-head"><strong>${esc(s.name)}</strong>
-          <span class="sub">${s.enabled ? "" : "Paused. "}${s.last_run ? `Last check ${ago(s.last_run)}: ${s.last_count ?? 0} ads` : "Not checked yet"}</span></div>
+          <span class="sub">${isDD(s.url) ? "DoneDeal. " : "Carzone. "}${s.enabled ? "" : "Paused. "}${isDD(s.url)
+            ? (s.total != null ? `${Math.min(s.next_from ?? 0, s.total)} of ${s.total} loaded so far, newest first${s.refreshed_at ? `; page 1 refreshed ${ago(s.refreshed_at)}` : ""}` : "Loads when you open the Market")
+            : s.last_run ? `Last check ${ago(s.last_run)}: ${s.last_count ?? 0} ads` : "Not checked yet"}</span></div>
         ${s.last_error ? `<div class="err">${esc(s.last_error)}</div>` : ""}
         <div class="sub">${esc(FIELDS.filter(([k]) => s[k] != null && s[k] !== "").map(([k, l]) => `${l}: ${s[k]}`).join(", ") || "No extra refinements")}</div>
         <div class="btns">
-          <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Open on Carzone ↗</a>
+          <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Open on ${isDD(s.url) ? "DoneDeal" : "Carzone"} ↗</a>
           <button class="btn" data-act="edit">Edit</button>
           <button class="btn" data-act="toggle">${s.enabled ? "Pause" : "Resume"}</button>
           <button class="btn" data-act="run">Check now</button>
@@ -554,8 +600,12 @@ async function renderSettings() {
     </section>
 
     <section class="panel">
-      <h2>Checking Carzone</h2>
-      <p class="hint">${st.demo ? "Demo mode is on, so automatic checks are off. Set DEMO=0 in docker-compose.yml to use real Carzone data." : `Checks every ${st.interval_hours} hours. ${st.scraper.running ? "Checking now: " + esc(st.scraper.progress) : st.last_run?.finished ? `Last check ${ago(st.last_run.finished)}: ${st.last_run.found ?? 0} ads, ${st.last_run.new_ads ?? 0} new.` : ""}`}</p>
+      <h2>Checking for ads</h2>
+      <p class="hint">${st.demo ? "Demo mode is on, so automatic checks are off. Set DEMO=0 in docker-compose.yml to use real data." : `<b>Carzone</b> is checked every ${st.interval_hours} hours. ${st.scraper.running ? "Checking now: " + esc(st.scraper.progress) : st.last_run?.finished ? `Last check ${ago(st.last_run.finished)}: ${st.last_run.found ?? 0} ads, ${st.last_run.new_ads ?? 0} new.` : ""}`}</p>
+      ${st.demo ? "" : `<p class="hint"><b>DoneDeal</b> is only asked while you use the Market: page 1 of each search when you open it (at most every ${st.refresh_hours} hours), then the next page when you're down to your last few cards. ${st.pager?.doing ? "Loading now: " + esc(st.pager.doing) + "." : ""}</p>
+      ${st.pager?.error ? `<p class="hint" style="color:var(--hide)">${esc(st.pager.error)}</p>` : ""}
+      <p class="hint"><b>Saved ads</b> are rechecked on their own page about every ${Math.round(st.check_saved_hours / 24 * 10) / 10} days, a few each hour, to catch price changes and sold cars.${st.checker?.last_checked ? ` Last recheck ${ago(st.checker.last_checked)}.` : ""}</p>
+      ${st.checker?.error ? `<p class="hint" style="color:var(--hide)">${esc(st.checker.error)}</p>` : ""}`}
       ${st.last_run?.error ? `<p class="hint" style="color:var(--hide)">${esc(st.last_run.error)}</p>` : ""}
       <div class="btns"><button class="btn primary" id="scrape-all" ${st.scraper.running ? "disabled" : ""}>Check all searches now</button>
       <button class="btn" id="show-debug">Show what the scraper saw</button></div>
@@ -595,7 +645,7 @@ async function renderSettings() {
     const d = await api("/api/debug");
     $("#debug").innerHTML = d.length ? d.map(x => `<h3>${esc(x.url)}</h3>
       <p class="hint">Page title: ${esc(x.title)}. Listings recognised: ${x.parsed_count}. JSON responses captured: ${x.json_responses.length}.</p>
-      <details><summary>Screenshot</summary><img src="/api/debug/${esc(x.name)}.png" alt="Screenshot of the Carzone page"></details>
+      ${x.screenshot === false ? "" : `<details><summary>Screenshot</summary><img src="/api/debug/${esc(x.name)}.png" alt="Screenshot of the Carzone page"></details>`}
       <details><summary>Recognised listings</summary><pre class="debug">${esc(JSON.stringify(x.parsed_ads, null, 2))}</pre></details>
       <details><summary>Captured JSON (for fixing the parser)</summary><pre class="debug">${esc(JSON.stringify(x.json_responses, null, 2))}</pre></details>`).join("")
       : `<p class="hint">Nothing yet. Run a check first.</p>`;

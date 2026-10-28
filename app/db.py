@@ -10,7 +10,7 @@ DB_PATH = os.environ.get("DB_PATH", "/data/carwatch.db")
 _lock = threading.RLock()
 _conn = None
 
-AD_FIELDS = ["url", "title", "make", "model", "variant", "year", "price", "mileage_km", "fuel", "body",
+AD_FIELDS = ["source", "url", "title", "make", "model", "variant", "year", "price", "mileage_km", "fuel", "body",
              "engine_l", "transmission", "colour", "county", "seller", "image"]
 EXCLUDABLE = ["make", "model", "variant", "fuel", "body", "engine_l", "transmission", "colour", "county", "seller"]
 SEARCH_FIELDS = ["name", "url", "enabled", "min_year", "max_year", "max_km", "min_price", "max_price",
@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS runs(
 CREATE INDEX IF NOT EXISTS ads_status ON ads(status);
 """
 
+# Columns added after the first release; created on start-up if missing.
+MIGRATIONS = {
+    "ads": {"source": "TEXT DEFAULT 'carzone'", "checked_at": "TEXT", "gone_at": "TEXT"},
+    "searches": {"next_from": "INTEGER", "total": "INTEGER", "refreshed_at": "TEXT"},
+}
+
 
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -55,6 +61,13 @@ def conn():
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.executescript(SCHEMA)
+        for table, cols in MIGRATIONS.items():
+            have = {r[1] for r in _conn.execute(f"PRAGMA table_info({table})")}
+            for col, decl in cols.items():
+                if col not in have:
+                    _conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+        _conn.execute("UPDATE ads SET source='carzone' WHERE source IS NULL")
+        _conn.commit()
     return _conn
 
 
@@ -102,6 +115,21 @@ def save_search(data, sid=None):
     return x(f"INSERT INTO searches({cols}) VALUES ({', '.join('?' * len(vals))})", tuple(vals.values()))
 
 
+def get_search(sid):
+    return q("SELECT * FROM searches WHERE id=?", (sid,), one=True)
+
+
+def update_paging(sid, next_from=None, total=None, refreshed=False, count=None, last_error=None):
+    """DoneDeal searches: remember how far we've paged and when page 1 was last fetched."""
+    if last_error is not None:
+        x("UPDATE searches SET last_error=? WHERE id=?", (last_error, sid))
+        return
+    t = now()
+    x("UPDATE searches SET next_from=?, total=?, last_error=NULL, last_run=?, "
+      "last_count=COALESCE(?, last_count), refreshed_at=CASE WHEN ? THEN ? ELSE refreshed_at END WHERE id=?",
+      (next_from, total, t, count, 1 if refreshed else 0, t, sid))
+
+
 def delete_search(sid):
     x("DELETE FROM searches WHERE id=?", (sid,))
     x("DELETE FROM ad_search WHERE search_id=?", (sid,))
@@ -112,6 +140,8 @@ def delete_search(sid):
 def upsert_ad(ad, search_id):
     """Insert or refresh an ad. Returns True if it's new."""
     t = now()
+    ad = dict(ad)
+    ad.setdefault("source", "carzone")
     with _lock:
         c = conn()
         row = c.execute("SELECT price, price_history FROM ads WHERE id=?", (ad["id"],)).fetchone()
@@ -126,12 +156,35 @@ def upsert_ad(ad, search_id):
             if ad.get("price") and ad["price"] != row["price"]:
                 hist.append([t, ad["price"]])
             sets = ", ".join(f"{f}=COALESCE(?, {f})" for f in AD_FIELDS)
-            c.execute(f"UPDATE ads SET {sets}, last_seen=?, price_history=? WHERE id=?",
+            c.execute(f"UPDATE ads SET {sets}, last_seen=?, price_history=?, gone_at=NULL WHERE id=?",
                       (*[ad.get(f) for f in AD_FIELDS], t, json.dumps(hist), ad["id"]))
             is_new = False
         c.execute("INSERT OR IGNORE INTO ad_search(ad_id, search_id) VALUES (?,?)", (ad["id"], search_id))
         c.commit()
     return is_new
+
+
+def record_check(ad_id, gone=False, price=None, error=False):
+    """Result of re-checking a saved ad on its own page."""
+    t = now()
+    with _lock:
+        c = conn()
+        row = c.execute("SELECT price, price_history FROM ads WHERE id=?", (ad_id,)).fetchone()
+        if row is None:
+            return
+        if error:
+            c.execute("UPDATE ads SET checked_at=? WHERE id=?", (t, ad_id))
+        elif gone:
+            c.execute("UPDATE ads SET checked_at=?, gone_at=? WHERE id=?", (t, t, ad_id))
+        else:
+            hist = json.loads(row["price_history"] or "[]")
+            new_price = row["price"]
+            if price and price != row["price"]:
+                hist.append([t, price])
+                new_price = price
+            c.execute("UPDATE ads SET checked_at=?, last_seen=?, price=?, price_history=?, gone_at=NULL WHERE id=?",
+                      (t, t, new_price, json.dumps(hist), ad_id))
+        c.commit()
 
 
 def set_status(ad_id, status):
@@ -210,7 +263,10 @@ def ads_for_list(which, search_id=None, stale_hours=72):
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=stale_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     if which == "market":
-        rows = q("SELECT * FROM ads WHERE status='new' AND last_seen >= ? ORDER BY first_seen DESC, id", (cutoff,))
+        # Carzone is re-scraped on a schedule, so an ad missing for a while has gone. DoneDeal pages
+        # are only fetched as you swipe, so its ads stay until swiped or found to be removed.
+        rows = q("SELECT * FROM ads WHERE status='new' AND gone_at IS NULL "
+                 "AND (source='donedeal' OR last_seen >= ?) ORDER BY first_seen DESC, id", (cutoff,))
     elif which == "liked":
         rows = q("SELECT * FROM ads WHERE status='liked' ORDER BY status_at DESC")
     else:
@@ -228,7 +284,8 @@ def ads_for_list(which, search_id=None, stale_hours=72):
             if not sids or (search_id and search_id not in sids):
                 continue
         ad["searches"] = [searches[sid]["name"] for sid in sids]
-        ad["active"] = ad["last_seen"] >= cutoff
+        ad["search_ids"] = sids
+        ad["active"] = ad["gone_at"] is None
         ad["price_history"] = json.loads(ad["price_history"] or "[]")
         out.append(ad)
     _add_comparables(out)

@@ -159,7 +159,12 @@ def run_all(only_search_id=None):
     errors = []
     try:
         from playwright.sync_api import sync_playwright
-        searches = [s for s in db.list_searches() if s["enabled"] and (not only_search_id or s["id"] == only_search_id)]
+        # Only Carzone is scraped on a schedule; DoneDeal pages are fetched on demand (pager.py).
+        searches = [s for s in db.list_searches() if s["enabled"] and "carzone.ie" in s["url"]
+                    and (not only_search_id or s["id"] == only_search_id)]
+        if not searches:
+            state["progress"] = "No Carzone searches"
+            return True
         with sync_playwright() as p:
             browser = p.chromium.launch(args=["--disable-blink-features=AutomationControlled"])
             context = browser.new_context(user_agent=UA, locale="en-IE", timezone_id="Europe/Dublin",

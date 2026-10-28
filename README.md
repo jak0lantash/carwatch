@@ -54,6 +54,25 @@ Your examples:
 | Hybrid estate | Fuel: Hybrid (+ Plug-in), Body: Estate | Max km 200000 |
 | Diesel 3L estate | Fuel: Diesel, Body: Estate | Engine 2.9 – 3.1, Max km 150000 |
 
+## DoneDeal
+
+Paste a donedeal.ie car search address under Searches, like a Carzone one. DoneDeal works
+differently from Carzone (same approach as DaftWatch):
+
+- Nothing runs on a schedule. When you open the Market, page 1 of each DoneDeal search is
+  fetched (at most every `REFRESH_HOURS`, default 6; results are newest first). When a search
+  is down to its last few cards (`PREFETCH_WHEN_LEFT`, default 5), its next page is fetched.
+- Plain HTTP, no browser (DoneDeal embeds its results as JSON in the page). One request at a
+  time, at least `MIN_GAP_SECONDS` (default 20) apart; if DoneDeal asks to slow down, it waits.
+- Individual ads are never fetched for the Market; "Open full ad" opens them in your browser.
+
+## Saved ads
+
+Every hour, the saved ads that haven't been seen for `CHECK_SAVED_HOURS` (default 48) are
+rechecked on their own page, a few at a time so each one is looked at about once per period.
+Price changes go into the price history; sold or removed ads are marked "No longer listed".
+Works for both sites, without a browser.
+
 ## How the lists work
 
 - **Market**: ads matching any enabled search, not yet swiped, not excluded, and seen on the

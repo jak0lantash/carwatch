@@ -7,7 +7,7 @@ import threading
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from . import db, scraper
+from . import checker, db, donedeal, pager, scraper
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 INTERVAL_HOURS = float(os.environ.get("SCRAPE_INTERVAL_HOURS", "6"))
@@ -44,7 +44,10 @@ def get_ads():
     if which not in ("market", "liked", "disliked"):
         return jsonify(error="Unknown list"), 400
     sid = request.args.get("search_id", type=int)
-    return jsonify(db.ads_for_list(which, search_id=sid, stale_hours=STALE_HOURS))
+    ads = db.ads_for_list(which, search_id=sid, stale_hours=STALE_HOURS)
+    if which == "market" and os.environ.get("DEMO") != "1":
+        pager.plan(ads if not sid else db.ads_for_list("market", stale_hours=STALE_HOURS))
+    return jsonify(ads)
 
 
 @app.post("/api/ads/<ad_id>/status")
@@ -60,7 +63,9 @@ def set_status(ad_id):
 def status():
     last = db.q("SELECT * FROM runs ORDER BY id DESC LIMIT 1", one=True)
     return jsonify(scraper=scraper.state, last_run=last, counts=db.counts(STALE_HOURS),
-                   interval_hours=INTERVAL_HOURS, demo=os.environ.get("DEMO") == "1")
+                   interval_hours=INTERVAL_HOURS, demo=os.environ.get("DEMO") == "1",
+                   pager=pager.status(), pager_busy=pager.busy(), refresh_hours=pager.REFRESH_HOURS,
+                   checker=checker.state, check_saved_hours=checker.PERIOD_HOURS)
 
 
 @app.post("/api/scrape")
@@ -68,8 +73,14 @@ def scrape_now():
     if os.environ.get("DEMO") == "1":
         return jsonify(started=False, error="Demo mode: checking Carzone is switched off"), 403
     sid = (request.json or {}).get("search_id") if request.is_json else None
-    started = scraper.start_background(sid)
-    return jsonify(started=started, state=scraper.state)
+    targets = [s for s in db.list_searches() if s["enabled"] and (not sid or s["id"] == sid)]
+    dd = [s for s in targets if donedeal.is_donedeal(s["url"])]
+    for s in dd:
+        pager.request(s["id"], "first")
+    started = bool(dd)
+    if any(not donedeal.is_donedeal(s["url"]) for s in targets):
+        started = scraper.start_background(sid) or started
+    return jsonify(started=started, state=scraper.state, pager=pager.status())
 
 
 @app.get("/api/searches")
@@ -77,20 +88,33 @@ def searches():
     return jsonify(db.list_searches())
 
 
+def _bad_url(url):
+    url = url or ""
+    if "carzone.ie" in url:
+        return None
+    if donedeal.is_donedeal(url) and "/cars" in url:
+        return None
+    return "Paste a carzone.ie or donedeal.ie car search address"
+
+
 @app.post("/api/searches")
 def add_search():
     data = request.json or {}
-    if not data.get("name") or "carzone.ie" not in (data.get("url") or ""):
-        return jsonify(error="Give the search a name and paste a carzone.ie search URL"), 400
+    err = _bad_url(data.get("url"))
+    if not data.get("name") or err:
+        return jsonify(error=err or "Give the search a name"), 400
     return jsonify(id=db.save_search(data))
 
 
 @app.put("/api/searches/<int:sid>")
 def edit_search(sid):
     data = request.json or {}
-    if "url" in data and "carzone.ie" not in (data.get("url") or ""):
-        return jsonify(error="The URL must be a carzone.ie search"), 400
+    if "url" in data and _bad_url(data.get("url")):
+        return jsonify(error=_bad_url(data.get("url"))), 400
+    old = db.get_search(sid)
     db.save_search(data, sid)
+    if old and "url" in data and data["url"] != old["url"]:  # new address: start paging afresh
+        db.x("UPDATE searches SET next_from=NULL, total=NULL, refreshed_at=NULL WHERE id=?", (sid,))
     return jsonify(ok=True)
 
 
@@ -144,6 +168,8 @@ def start():
         from .demo import seed
         seed()
     threading.Thread(target=scraper.scheduler_loop, args=(INTERVAL_HOURS,), daemon=True).start()
+    pager.start()
+    checker.start()
     port = int(os.environ.get("PORT", "8080"))
     try:
         from waitress import serve
