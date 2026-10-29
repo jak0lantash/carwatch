@@ -90,6 +90,38 @@ def _dismiss_cookies(page):
             pass
 
 
+def carzone_photos(state_text):
+    """{ad number: first photo URL} from Carzone's embedded state (cz-web-state)."""
+    if not state_text:
+        return {}
+    raw = (state_text.replace("&q;", '"').replace("&s;", "'").replace("&l;", "<")
+           .replace("&g;", ">").replace("&a;", "&"))
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {}
+    out = {}
+
+    def walk(o, depth=0):
+        if depth > 12:
+            return
+        if isinstance(o, dict):
+            ref = o.get("publicReference")
+            imgs = o.get("imageDetails")
+            if ref and isinstance(imgs, list) and imgs:
+                first = imgs[0] if isinstance(imgs[0], dict) else {}
+                url = first.get("imageResizeUrl") or first.get("fullSizeImageUrl")
+                if url and str(ref) not in out:
+                    out[str(ref)] = url
+            for v in o.values():
+                walk(v, depth + 1)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v, depth + 1)
+    walk(data)
+    return out
+
+
 def scrape_page(context, url, debug_name=None):
     page = context.new_page()
     captured = []
@@ -125,6 +157,14 @@ def scrape_page(context, url, debug_name=None):
             if not ad:
                 continue
             found[ad["id"]] = merge(found.get(ad["id"]), ad) if ad["id"] in found else ad
+
+        # Photos: Carzone embeds each listing's photo list in the page's state data, keyed by
+        # ad number. Cards only load photos once scrolled into view, so trust this instead.
+        photos = carzone_photos(page.evaluate(
+            "() => (document.getElementById('cz-web-state') || {}).textContent || ''"))
+        for ad_id, img in photos.items():
+            if ad_id in found:
+                found[ad_id]["image"] = img
 
         if debug_name:
             _save_debug(debug_name, url, captured, cards, found, page)
